@@ -1,0 +1,57 @@
+diff --git a/kernel/drivers/net/stack/include/rtskb.h b/kernel/drivers/net/stack/include/rtskb.h
+index 7489aa6..fdb6294 100644
+--- a/kernel/drivers/net/stack/include/rtskb.h
++++ b/kernel/drivers/net/stack/include/rtskb.h
+@@ -145,6 +145,7 @@ cap_rtmac_stamp field now contains valid data.
+ #define RTSKB_CAP_RTMAC_STAMP   2   /* cap_rtmac_stamp is valid             */
+ 
+ #define RTSKB_UNMAPPED          0
++#define RTSKB_UNMAPPED_INLIST	1
+ 
+ struct rtskb_queue;
+ struct rtsocket;
+diff --git a/kernel/drivers/net/stack/rtdev.c b/kernel/drivers/net/stack/rtdev.c
+index 5eb73ce..940b8ff 100644
+--- a/kernel/drivers/net/stack/rtdev.c
++++ b/kernel/drivers/net/stack/rtdev.c
+@@ -379,6 +379,7 @@ static int rtskb_map(struct rtnet_device *rtdev, struct rtskb *skb)
+ 	return -ENOMEM;
+ 
+     if (skb->buf_dma_addr != RTSKB_UNMAPPED &&
++	skb->buf_dma_addr != RTSKB_UNMAPPED_INLIST &&
+ 	addr != skb->buf_dma_addr) {
+ 	printk("RTnet: device %s maps skb differently than others. "
+ 	       "Different IOMMU domain?\nThis is not supported.\n",
+@@ -412,8 +413,11 @@ int rtdev_map_rtskb(struct rtskb *skb)
+ 	}
+     }
+ 
+-    if (!err)
++    if (!err) {
++	if (skb->buf_dma_addr == RTSKB_UNMAPPED)
++	    skb->buf_dma_addr = RTSKB_UNMAPPED_INLIST;
+ 	list_add(&skb->entry, &rtskb_list);
++    }
+ 
+     mutex_unlock(&rtnet_devices_nrt_lock);
+ 
+@@ -453,13 +457,14 @@ void rtdev_unmap_rtskb(struct rtskb *skb)
+ 
+     list_del(&skb->entry);
+ 
+-    for (i = 0; i < MAX_RT_DEVICES; i++) {
+-	rtdev = rtnet_devices[i];
+-	if (rtdev && rtdev->unmap_rtskb) {
+-	    rtdev->unmap_rtskb(rtdev, skb);
++    if (skb->buf_dma_addr != RTSKB_UNMAPPED_INLIST) {
++	for (i = 0; i < MAX_RT_DEVICES; i++) {
++	    rtdev = rtnet_devices[i];
++	    if (rtdev && rtdev->unmap_rtskb) {
++		rtdev->unmap_rtskb(rtdev, skb);
++	    }
+ 	}
+     }
+-
+     skb->buf_dma_addr = RTSKB_UNMAPPED;
+ 
+     mutex_unlock(&rtnet_devices_nrt_lock);
